@@ -1,23 +1,35 @@
 #include "ros/ros.h"
 #include "ball_chaser/DriveToTarget.h"
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/LaserScan.h>
 #include <algorithm>
+#include <iostream>
 using namespace std;
 
 // Define a global client that can request services
 ros::ServiceClient client;
+
+bool willCollide = false;
 
 // This function calls the command_robot service to drive the robot in the specified direction
 void drive_robot(float lin_x, float ang_z)
 {
     // Request a service and pass the velocities to it to drive the robot
 	ball_chaser::DriveToTarget srv;
-	srv.request.linear_x=lin_x;
+	
 	srv.request.angular_z=ang_z;
+
+	if(!willCollide){
+		srv.request.linear_x=lin_x;
+	}else{
+		ROS_INFO("Robot can not walk forward, some obstacle in front!");
+		srv.request.linear_x = 0;
+	}
+		
 
 	if (!client.call(srv))
         ROS_ERROR("Failed to call service safe_move");
-
+	
 }
 
 // This callback function continuously executes and reads the image data
@@ -60,8 +72,7 @@ void process_image_callback(const sensor_msgs::Image img)
     // Loop through each pixel in the image and check if there's a bright white one
 	for (int y = 0; y < img.height; y++) {
 		for (int x = 0; x < img.width; x++) {
-			maximum = max(maximum, greyImage[x][y]);
-		    if (greyImage[x][y]>250) {
+		    if (greyImage[x][y]==255) {
 		        if(x<img.width/3){
 					drive_robot(0, 0.5);
 					moved=true;
@@ -85,6 +96,30 @@ void process_image_callback(const sensor_msgs::Image img)
 	
 }
 
+void avoid_collision_callback(const sensor_msgs::LaserScan scan){
+	willCollide = false;
+
+	// Check distance from 0 to 30 degrees
+	for(int i = 0;i<30;i++){
+		if(scan.ranges.at(i)>scan.range_min && scan.ranges.at(i)<scan.range_max){
+			if(scan.ranges.at(i)<0.4){
+				willCollide = true;
+				cout<<"!!"<<i<<"!!"<<endl;
+			}
+				
+		}	
+	}
+	// Check distance from 360 to 330 degrees
+	for(int i = 360;i>330;i--){
+		if(scan.ranges.at(i)>scan.range_min && scan.ranges.at(i)<scan.range_max){
+			if(scan.ranges.at(i)<0.4){
+				willCollide = true;
+				cout<<"!!"<<i<<"!!"<<endl;
+			}
+		}
+	}
+}
+
 int main(int argc, char** argv)
 {
     // Initialize the process_image node and create a handle to it
@@ -96,6 +131,9 @@ int main(int argc, char** argv)
 
     // Subscribe to /camera/rgb/image_raw topic to read the image data inside the process_image_callback function
     ros::Subscriber sub1 = n.subscribe("/camera/rgb/image_raw", 10, process_image_callback);
+
+	// Subscribe to 
+	ros::Subscriber sub2 = n.subscribe("/scan", 10, avoid_collision_callback);
 
     // Handle ROS communication events
     ros::spin();
