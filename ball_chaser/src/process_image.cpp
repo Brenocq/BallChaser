@@ -1,6 +1,8 @@
 #include "ros/ros.h"
 #include "ball_chaser/DriveToTarget.h"
 #include <sensor_msgs/Image.h>
+#include <algorithm>
+using namespace std;
 
 // Define a global client that can request services
 ros::ServiceClient client;
@@ -26,29 +28,61 @@ void process_image_callback(const sensor_msgs::Image img)
     // Request a stop when there's no white ball seen by the camera
     int white_pixel = 255;
 	bool moved=false;
+	int **greyImage;
+	int minGrey=255;
+	int maxGrey=0;
+
+	// Create grayscale image matrix
+	greyImage = new int*[img.width];
+	for(int x = 0; x < img.width; x++){
+		greyImage[x] = new int[img.height];
+	}
+
+	// Write grayscale image
+	for (int y = 0; y < img.height; y++) {
+		for (int i = 0; i < img.step; i+=3) {
+			int imgDataIndex = i+y*img.step;
+			greyImage[i/3][y] = ( img.data[imgDataIndex] + img.data[imgDataIndex+1] + img.data[imgDataIndex+2] )/3;
+			minGrey = min(minGrey, greyImage[i/3][y]);
+			maxGrey = max(maxGrey, greyImage[i/3][y]);
+		}
+	}
+
+	// Normalization	
+	for (int y = 0; y < img.height; y++) {
+		for (int x = 0; x < img.width; x++) {
+			greyImage[x][y] = (greyImage[x][y]-minGrey)*255/(maxGrey-minGrey);
+			
+		}
+	}
+	
 
     // Loop through each pixel in the image and check if there's a bright white one
-	for (int i = 0; i < img.height * img.step; i+=3) {
-        if (img.data[i] == white_pixel && img.data[i+1] == white_pixel && img.data[i+2] == white_pixel) {
-			int x = i%img.step;
-            if(x<img.step/3){
-				drive_robot(0, 0.5);
-				moved=true;
-			}else if(x>img.step-img.step/3){
-				drive_robot(0, -0.5);
-				moved=true;
-			}else{
-				drive_robot(0.5, 0);
-				moved=true;
-			}
-            break;
-        }
-    }
+	for (int y = 0; y < img.height; y++) {
+		for (int x = 0; x < img.width; x++) {
+			maximum = max(maximum, greyImage[x][y]);
+		    if (greyImage[x][y]>250) {
+		        if(x<img.width/3){
+					drive_robot(0, 0.5);
+					moved=true;
+				}else if(x>img.width-img.width/3){
+					drive_robot(0, -0.5);
+					moved=true;
+				}else{
+					drive_robot(0.5, 0);
+					moved=true;
+				}
+		        break;
+		    }
+		}
+	}
+
 	if(moved==false){
 		drive_robot(0, 0);
 	}
 
-
+	delete[] greyImage;
+	
 }
 
 int main(int argc, char** argv)
